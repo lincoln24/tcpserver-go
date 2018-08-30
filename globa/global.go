@@ -14,6 +14,11 @@ const (
 	FAILURE = -1
 )
 
+const (
+    TYPE_TEMP_SENSOR = 1
+    TYPE_VIBRATION_SENSOR = 2
+)
+
 var Db *sql.DB
 
 func CheckError(error error, info string) {

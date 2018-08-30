@@ -46,7 +46,7 @@ func connectionHandler(conn net.Conn) {
 				continue
 			}
 			dataLength := ByteToUint16(ibuf[6:8])
-			desiredLength := dataLength + 8
+			desiredLength := dataLength + 10
 			for {
 				if length < desiredLength{
 					partLength, err := reader.Read(ibuf[length:maxRead])
@@ -82,53 +82,89 @@ func sayHello(to net.Conn) {
 	CheckError(err, "Write: wrote "+string(wrote)+" bytes.")
 }
 
-// func handleMsg(length int, msg []byte) {
-// 	if length > 0 {
-// 		print("<", length, ":")
-// 		for i := 0; i < length; i++ {
-// 			fmt.Printf("%02x ", msg[i])
-// 		}
-// 		print(">\n")
-// 	}
-	
-// 	if length > 12 {
-// 		// zoneid := int(msg[1])
-// 		// devtype := int(msg[2])
-// 		devindex := ByteToUint16(msg[3:5])
-// 		// println(devindex)
-// 		data := ByteToFloat32(msg[7:11])
-// 		// fmt.Printf("%f\n", data)
-// 		// 7E01010001010441BC7AE11234
-// 		_,err := Db.Exec("UPDATE d_temp_data set temp=? where sensor_id=?",data,devindex)
-// 	    CheckError(err, "sql failed:")
-// 	}
-// }
-var count int = 0
 func handleMsg(length int, msg []byte, writer *bufio.Writer) {
-	fmt.Printf("lengthfffffff=%d\n", length)
-	if length > 12 {
-		dataLength := ByteToUint16(msg[6:8])
+	if length > 0 {
+		print("<", length, ":")
+		for i := 0; i < length; i++ {
+			fmt.Printf("%02x ", msg[i])
+		}
+		print(">\n")
+	}
+
+	var sqlToDo string
+
+	if length > 10 {
+		// zoneid := int(msg[1])
+		devtype := int(msg[2])
 		devindex := ByteToUint16(msg[3:5])
+		// println(devindex)
+		// fmt.Printf("%f\n", data)
+		switch (devtype){
+		case TYPE_TEMP_SENSOR:
+			// 7E0101000101000441BC7AE11234
+			data := ByteToFloat32(msg[8:12])
+			rows, _ := Db.Query("SELECT sensor_id FROM d_temp_data WHERE sensor_id = ?", devindex)
 
-	    sqlToDo := fmt.Sprintf("INSERT d_realtime_sensor_%d (data) VALUES(%d)",devindex, ByteToUint32(msg[8:8+4]));
-	    for i:=12;(i <= dataLength + 4) && (i <= length - 4);i=i+4 {
-	        sqlToDo += fmt.Sprintf(",(%d)",ByteToUint32(msg[i:i+4]))
-	    }
-
-		// fmt.Printf("%d:%s\n", dataLength,sqlToDo)
-	    for{
+			defer rows.Close()
+			if rows != nil{
+				sqlToDo = fmt.Sprintf("UPDATE d_temp_data set temp=%f where sensor_id=%d",data, devindex)
+			}else{
+				sqlToDo = fmt.Sprintf("INSERT d_temp_data(sensor_id,temp) VALUES(%d,%f)",devindex, data)
+			}
+			break
+		case TYPE_VIBRATION_SENSOR:
+			// 7E01020001010004000000011234
+			data := ByteToUint32(msg[8:12])
+			rows, _ := Db.Query("SELECT sensor_id FROM d_vibration_data WHERE sensor_id = ?", devindex)
+			defer rows.Close()
+			if rows != nil{
+				sqlToDo = fmt.Sprintf("UPDATE d_vibration_data set status=%d where sensor_id=%d",data, devindex)
+			}else{
+				sqlToDo = fmt.Sprintf("INSERT d_vibration_data(sensor_id,status) VALUES(%d,%d)",devindex, data)
+			}
+			break		
+		}
+		println(sqlToDo)
+		for{
 			_,err := Db.Exec(sqlToDo)
 			if err != nil{
 		    	CheckError(err, "sql failed:")
-		    	time.Sleep(500000)
+		    	time.Sleep(100000)
 			}else{
-				break;
+				// break
 			}
 		}
-
 		writer.WriteString("ok\n")
 		writer.Flush()
-		count++
-		// println(count)
+		println("write finish")
 	}
 }
+// var count int = 0
+// func handleMsg(length int, msg []byte, writer *bufio.Writer) {
+// 	fmt.Printf("lengthfffffff=%d\n", length)
+// 	if length > 12 {
+// 		dataLength := ByteToUint16(msg[6:8])
+// 		devindex := ByteToUint16(msg[3:5])
+
+// 	    sqlToDo := fmt.Sprintf("INSERT d_realtime_sensor_%d (data) VALUES(%d)",devindex, ByteToUint32(msg[8:8+4]));
+// 	    for i:=12;(i <= dataLength + 4) && (i <= length - 4);i=i+4 {
+// 	        sqlToDo += fmt.Sprintf(",(%d)",ByteToUint32(msg[i:i+4]))
+// 	    }
+
+// 		// fmt.Printf("%d:%s\n", dataLength,sqlToDo)
+// 	    for{
+// 			_,err := Db.Exec(sqlToDo)
+// 			if err != nil{
+// 		    	CheckError(err, "sql failed:")
+// 		    	time.Sleep(500000)
+// 			}else{
+// 				break;
+// 			}
+// 		}
+
+// 		writer.WriteString("ok\n")
+// 		writer.Flush()
+// 		count++
+// 		// println(count)
+// 	}
+// }
