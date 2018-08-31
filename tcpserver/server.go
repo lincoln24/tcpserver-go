@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"bufio"
+	"io"
 	"syscall"
 	"time"
 	. "tcpserver/globa"
@@ -30,7 +31,6 @@ func initServer(hostAndPort string) net.Listener {
 }
 
 func connectionHandler(conn net.Conn) {
-	var ibuf []byte = make([]byte, maxRead+1)
 	connFrom := conn.RemoteAddr().String()
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
@@ -38,32 +38,35 @@ func connectionHandler(conn net.Conn) {
 	println("Connection from: ", connFrom)
 
 	for {
-		length, err := reader.Read(ibuf[0:maxRead])
-		fmt.Printf("length1111111=%d\n", length)
+		var ibuf []byte = make([]byte, 8)
+		// conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		length, err := io.ReadFull(reader, ibuf)
+		// length, err := reader.Read(ibuf[0:maxRead])
+		// fmt.Printf("length1111111=%d\n", length)
 		switch err {
 		case nil:
-			if length < 12{//没收到足够的数据
+			if ibuf[0] != 0x7E {//没收到足够的数据或数据不符合规范
 				continue
 			}
 			dataLength := ByteToUint16(ibuf[6:8])
 			desiredLength := dataLength + 10
 			for {
 				if length < desiredLength{
-					partLength, err := reader.Read(ibuf[length:maxRead])
+					// conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+					ibuf = append(ibuf, make([]byte, dataLength+2)...)
+					partLength, err := io.ReadFull(reader, ibuf[length:])
+					// partLength, err := reader.Read(ibuf[length:maxRead])
 					length += partLength
 					// fmt.Printf("partLength=%d,length=%d\n", partLength,length)
 					if err != nil{ //若收不到数据就退出
 						break;
 					}
 				}else{ //收满了就退出
-					if ibuf[0] == 0x7E {
-						finalBuf := ibuf[:desiredLength]
-						go handleMsg(desiredLength, finalBuf,writer)
-					}
+					// finalBuf := ibuf[:desiredLength]
+					go handleMsg(desiredLength, ibuf,writer)
 					break;
 				}
 			}
-			// sayHello(conn)
 		case syscall.EAGAIN: // try again
 			continue
 		default:
@@ -76,33 +79,26 @@ DISCONNECT:
 	CheckError(err, "Close: ")
 }
 
-func sayHello(to net.Conn) {
-	obuf := []byte{'L', 'e', 't', '\'', 's', ' ', 'G', 'O', '!', '\n'}
-	wrote, err := to.Write(obuf)
-	CheckError(err, "Write: wrote "+string(wrote)+" bytes.")
-}
+func handleMsg(length int, ibuf []byte, writer *bufio.Writer) {
+	var sqlToDo string
 
-func handleMsg(length int, msg []byte, writer *bufio.Writer) {
 	if length > 0 {
 		print("<", length, ":")
 		for i := 0; i < length; i++ {
-			fmt.Printf("%02x ", msg[i])
+			fmt.Printf("%02x ", ibuf[i])
 		}
 		print(">\n")
 	}
-
-	var sqlToDo string
-
 	if length > 10 {
-		// zoneid := int(msg[1])
-		devtype := int(msg[2])
-		devindex := ByteToUint16(msg[3:5])
+		// zoneid := int(ibuf[1])
+		devtype := int(ibuf[2])
+		devindex := ByteToUint16(ibuf[3:5])
 		// println(devindex)
 		// fmt.Printf("%f\n", data)
 		switch (devtype){
 		case TYPE_TEMP_SENSOR:
 			// 7E0101000101000441BC7AE11234
-			data := ByteToFloat32(msg[8:12])
+			data := ByteToFloat32(ibuf[8:12])
 			rows, _ := Db.Query("SELECT sensor_id FROM d_temp_data WHERE sensor_id = ?", devindex)
 
 			defer rows.Close()
@@ -114,7 +110,7 @@ func handleMsg(length int, msg []byte, writer *bufio.Writer) {
 			break
 		case TYPE_VIBRATION_SENSOR:
 			// 7E01020001010004000000011234
-			data := ByteToUint32(msg[8:12])
+			data := ByteToUint32(ibuf[8:12])
 			rows, _ := Db.Query("SELECT sensor_id FROM d_vibration_data WHERE sensor_id = ?", devindex)
 			defer rows.Close()
 			if rows != nil{
@@ -131,7 +127,7 @@ func handleMsg(length int, msg []byte, writer *bufio.Writer) {
 		    	CheckError(err, "sql failed:")
 		    	time.Sleep(100000)
 			}else{
-				// break
+				break
 			}
 		}
 		writer.WriteString("ok\n")
