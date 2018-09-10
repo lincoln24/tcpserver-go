@@ -99,9 +99,13 @@ func handleMsg(length int, ibuf []byte, writer *bufio.Writer) {
 		case TYPE_TEMP_SENSOR:
 			// 7E0101000101000441BC7AE11234
 			data := ByteToFloat32(ibuf[8:12])
-			rows, _ := Db.Query("SELECT sensor_id FROM d_temp_data WHERE sensor_id = ?", devindex)
+			rows, err := Db.Query("SELECT sensor_id FROM d_temp_data WHERE sensor_id = ?", devindex)
 
 			defer rows.Close()
+			if err != nil{
+				CheckError(err, "select failed:")
+				return
+			}
 			if rows != nil{
 				sqlToDo = fmt.Sprintf("UPDATE d_temp_data set temp=%f where sensor_id=%d",data, devindex)
 			}else{
@@ -111,8 +115,12 @@ func handleMsg(length int, ibuf []byte, writer *bufio.Writer) {
 		case TYPE_VIBRATION_SENSOR:
 			// 7E01020001010004000000011234
 			data := ByteToUint32(ibuf[8:12])
-			rows, _ := Db.Query("SELECT sensor_id FROM d_vibration_data WHERE sensor_id = ?", devindex)
+			rows, err := Db.Query("SELECT sensor_id FROM d_vibration_data WHERE sensor_id = ?", devindex)
 			defer rows.Close()
+			if err != nil{
+				CheckError(err, "select failed:")
+				return
+			}
 			if rows != nil{
 				sqlToDo = fmt.Sprintf("UPDATE d_vibration_data set status=%d where sensor_id=%d",data, devindex)
 			}else{
@@ -121,15 +129,15 @@ func handleMsg(length int, ibuf []byte, writer *bufio.Writer) {
 			break		
 		}
 		println(sqlToDo)
-		for{
+		// for{
 			_,err := Db.Exec(sqlToDo)
 			if err != nil{
 		    	CheckError(err, "sql failed:")
 		    	time.Sleep(100000)
 			}else{
-				break
+				// break
 			}
-		}
+		// }
 		writer.WriteString("ok\n")
 		writer.Flush()
 		println("write finish")
