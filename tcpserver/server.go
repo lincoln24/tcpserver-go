@@ -7,6 +7,7 @@ import (
 	"io"
 	"syscall"
 	"time"
+    "database/sql"
 	. "tcpserver/globa"
 )
 
@@ -81,6 +82,7 @@ DISCONNECT:
 
 func handleMsg(length int, ibuf []byte, writer *bufio.Writer) {
 	var sqlToDo string
+	var sensor_id int
 
 	if length > 0 {
 		print("<", length, ":")
@@ -99,32 +101,34 @@ func handleMsg(length int, ibuf []byte, writer *bufio.Writer) {
 		case TYPE_TEMP_SENSOR:
 			// 7E0101000101000441BC7AE11234
 			data := ByteToFloat32(ibuf[8:12])
-			rows, err := Db.Query("SELECT sensor_id FROM d_temp_data WHERE sensor_id = ?", devindex)
+			err := Db.QueryRow("SELECT sensor_id FROM d_temp_data WHERE sensor_id = ?", devindex).Scan(&sensor_id)
 
-			defer rows.Close()
-			if err != nil{
-				CheckError(err, "select failed:")
-				return
-			}
-			if rows != nil{
+			if err == nil{
 				sqlToDo = fmt.Sprintf("UPDATE d_temp_data set temp=%f where sensor_id=%d",data, devindex)
-			}else{
+			}else if err == sql.ErrNoRows{
 				sqlToDo = fmt.Sprintf("INSERT d_temp_data(sensor_id,temp) VALUES(%d,%f)",devindex, data)
+			}else{
+				CheckError(err, "select failed:")
+				return				
 			}
+			// if sensor_id > 0{
+			// 	sqlToDo = fmt.Sprintf("UPDATE d_temp_data set temp=%f where sensor_id=%d",data, devindex)
+			// }else{
+			// 	sqlToDo = fmt.Sprintf("INSERT d_temp_data(sensor_id,temp) VALUES(%d,%f)",devindex, data)
+			// }
 			break
 		case TYPE_VIBRATION_SENSOR:
 			// 7E01020001010004000000011234
 			data := ByteToUint32(ibuf[8:12])
-			rows, err := Db.Query("SELECT sensor_id FROM d_vibration_data WHERE sensor_id = ?", devindex)
-			defer rows.Close()
-			if err != nil{
-				CheckError(err, "select failed:")
-				return
-			}
-			if rows != nil{
+			err := Db.QueryRow("SELECT sensor_id FROM d_vibration_data WHERE sensor_id = ?", devindex).Scan(&sensor_id)
+
+			if err == nil{
 				sqlToDo = fmt.Sprintf("UPDATE d_vibration_data set status=%d where sensor_id=%d",data, devindex)
-			}else{
+			}else if err == sql.ErrNoRows{
 				sqlToDo = fmt.Sprintf("INSERT d_vibration_data(sensor_id,status) VALUES(%d,%d)",devindex, data)
+			}else{
+				CheckError(err, "select failed:")
+				return				
 			}
 			break		
 		}
